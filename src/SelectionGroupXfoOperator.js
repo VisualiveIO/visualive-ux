@@ -1,4 +1,6 @@
 import { Xfo, Group, Operator, OperatorInput, OperatorOutput } from '@zeainc/zea-engine'
+import UndoRedoManager from './UndoRedo/UndoRedoManager.js'
+import ParameterValueChange from './UndoRedo/Changes/ParameterValueChange.js'
 
 /**
  * An operator for aiming items at targets.
@@ -16,6 +18,9 @@ class SelectionGroupXfoOperator extends Operator {
     super()
     this.addInput(new OperatorInput('InitialXfoMode')).setParam(initialXfoModeParam)
     this.addOutput(new OperatorOutput('GroupGlobalXfo')).setParam(globalXfoParam)
+
+    this.currChange = null
+    this.initialItemXfos = []
   }
 
   /**
@@ -56,13 +61,37 @@ class SelectionGroupXfoOperator extends Operator {
   backPropagateValue(xfo) {
     const groupTransformOutput = this.getOutput('GroupGlobalXfo')
     const currGroupXfo = groupTransformOutput.getValue()
-    const invXfo = currGroupXfo.inverse()
+
+    const currChange = UndoRedoManager.getInstance().getCurrentChange()
+    if (this.currChange != currChange) {
+      this.currChange = currChange
+      if (this.currChange) this.currChange.suppressPrimaryChange = true
+
+      for (let i = 1; i < this.getNumInputs(); i++) {
+        this.initialItemXfos[i] = this.getInputByIndex(i).getValue()
+
+        if (this.currChange) {
+          const param = this.getInputByIndex(i).getParam()
+          const secondaryChange = new ParameterValueChange(param)
+          this.currChange.addSecondaryChange(secondaryChange)
+        }
+      }
+      this.initialGroupXfo = currGroupXfo
+    }
+
+    const invXfo = this.initialGroupXfo.inverse()
     const delta = xfo.multiply(invXfo)
     for (let i = 1; i < this.getNumInputs(); i++) {
-      const input = this.getInputByIndex(i)
-      const currXfo = input.getValue()
-      const result = delta.multiply(currXfo)
-      input.setValue(result)
+      const value = delta.multiply(this.initialItemXfos[i])
+
+      if (this.currChange) {
+        this.currChange.secondaryChanges[i - 1].update({
+          value,
+        })
+      } else {
+        const input = this.getInputByIndex(i)
+        input.setValue(value)
+      }
     }
   }
 

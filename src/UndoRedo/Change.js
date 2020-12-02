@@ -1,5 +1,4 @@
-import { EventEmitter } from '@zeainc/zea-engine'
-import { UndoRedoManager } from './UndoRedoManager.js'
+import { EventEmitter, Registry } from '@zeainc/zea-engine'
 
 /**
  * Kind of an abstract class, that represents the mandatory structure of a change classes that are used in the [`UndoRedoManager`]().
@@ -16,7 +15,7 @@ class Change extends EventEmitter {
    */
   constructor(name) {
     super()
-    this.name = name ? name : UndoRedoManager.getChangeClassName(this)
+    this.name = name
   }
 
   /**

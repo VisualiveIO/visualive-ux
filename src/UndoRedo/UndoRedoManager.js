@@ -136,7 +136,7 @@ class UndoRedoManager extends EventEmitter {
   // User Synchronization
 
   /**
-   * Basically returns a new instance of the derived `Change` class. This is why we need the `name` attribute.
+   * Returns a new instance of the derived `Change` class.
    *
    * @param {string} className - The className param.
    * @return {Change} - The return value.

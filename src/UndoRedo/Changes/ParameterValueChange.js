@@ -34,13 +34,36 @@ class ParameterValueChange extends Change {
     this.secondaryChanges = []
   }
 
+  addSecondaryChange(secondaryChange) {
+    const index = this.secondaryChanges.length
+    secondaryChange.on('updated', (updateData) => {
+      this.emit('updated', {
+        secondaryChange: {
+          index,
+          updateData,
+        },
+      })
+    })
+    this.secondaryChanges.push(secondaryChange)
+    this.emit('updated', {
+      secondaryChangeAdded: {
+        changeClass: UndoRedoManager.getChangeClassName(secondaryChange),
+        changeData: secondaryChange.toJSON(),
+      },
+      suppressPrimaryChange: this.suppressPrimaryChange,
+    })
+    return index
+  }
+
   /**
    * Rollbacks the value of the parameter to the previous one, passing it to the redo stack in case you wanna recover it later on.
    */
   undo() {
     if (!this.__param) return
 
-    if (!this.suppressPrimaryChange) this.__param.setValue(this.__prevValue)
+    if (!this.suppressPrimaryChange) {
+      this.__param.setValue(this.__prevValue)
+    }
 
     this.secondaryChanges.forEach((change) => change.undo())
   }
@@ -51,7 +74,10 @@ class ParameterValueChange extends Change {
    */
   redo() {
     if (!this.__param) return
-    if (!this.suppressPrimaryChange) this.__param.setValue(this.__nextValue)
+    if (!this.suppressPrimaryChange) {
+      console.log('redo:', this.__param.getPath(), this.__nextValue.tr.toString())
+      this.__param.setValue(this.__nextValue)
+    }
 
     this.secondaryChanges.forEach((change) => change.redo())
   }
@@ -63,9 +89,13 @@ class ParameterValueChange extends Change {
    */
   update(updateData) {
     if (!this.__param) return
-    this.__nextValue = updateData.value
-    this.__param.setValue(this.__nextValue)
-    this.emit('updated', updateData)
+    if (updateData.value != undefined) {
+      this.__nextValue = updateData.value
+      this.__param.setValue(this.__nextValue)
+    }
+    this.emit('updated', {
+      value: this.__nextValue,
+    })
   }
 
   /**
@@ -80,13 +110,23 @@ class ParameterValueChange extends Change {
       paramPath: this.__param.getPath(),
     }
 
-    if (this.__nextValue != undefined) {
-      if (this.__nextValue.toJSON) {
-        j.value = this.__nextValue.toJSON()
-      } else {
-        j.value = this.__nextValue
+    if (!this.suppressPrimaryChange) {
+      if (this.__nextValue != undefined) {
+        if (this.__nextValue.toJSON) {
+          j.value = this.__nextValue.toJSON()
+        } else {
+          j.value = this.__nextValue
+        }
       }
     }
+
+    j.suppressPrimaryChange = this.suppressPrimaryChange
+    j.secondaryChanges = this.secondaryChanges.map((secondaryChange) => {
+      return {
+        changeClass: UndoRedoManager.getChangeClassName(change),
+        changeData: secondaryChange.toJSON(context),
+      }
+    })
     return j
   }
 
@@ -103,12 +143,25 @@ class ParameterValueChange extends Change {
       return
     }
     this.__param = param
-    this.__prevValue = this.__param.getValue()
-    if (this.__prevValue.clone) this.__nextValue = this.__prevValue.clone()
-    else this.__nextValue = this.__prevValue
-
     this.name = j.name
-    if (j.value != undefined) this.changeFromJSON(j)
+
+    if (!j.suppressPrimaryChange) {
+      this.__prevValue = this.__param.getValue()
+      if (this.__prevValue.clone) this.__nextValue = this.__prevValue.clone()
+      else this.__nextValue = this.__prevValue
+      if (j.value) {
+        if (this.__nextValue.fromJSON) this.__nextValue.fromJSON(j.value)
+        else this.__nextValue = j.value
+        this.__param.setValue(this.__nextValue)
+      }
+    }
+
+    if (j.secondaryChanges) {
+      this.secondaryChange = j.secondaryChanges.map((data) => {
+        const change = UndoRedoManager.getInstance().constructChange(data.changeClass)
+        change.fromJSON(data.changeData, context)
+      })
+    }
   }
 
   /**
@@ -118,9 +171,23 @@ class ParameterValueChange extends Change {
    */
   changeFromJSON(j) {
     if (!this.__param) return
-    if (this.__nextValue.fromJSON) this.__nextValue.fromJSON(j.value)
-    else this.__nextValue = j.value
-    this.__param.setValue(this.__nextValue)
+    if (j.value) {
+      if (this.__nextValue.fromJSON) this.__nextValue.fromJSON(j.value)
+      else this.__nextValue = j.value
+      this.__param.setValue(this.__nextValue)
+    }
+
+    if (j.secondaryChangeAdded) {
+      const data = j.secondaryChangeAdded
+      const change = UndoRedoManager.getInstance().constructChange(data.changeClass)
+      change.fromJSON(data.changeData, context)
+      this.secondaryChanges.push(change)
+      if (j.suppressPrimaryChange) this.suppressPrimaryChange = j.suppressPrimaryChange
+    }
+    if (j.secondaryChange) {
+      const secondaryChange = updateData.secondaryChange
+      this.secondaryChanges[secondaryChange.index].update(secondaryChange.updateData)
+    }
   }
 }
 
